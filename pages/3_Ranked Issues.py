@@ -7,12 +7,18 @@ import numpy as np
 import seaborn as sns
 import os
 
+# --- Initialize session state for safe access ---
+if 'top_issue_summary_all' not in st.session_state:
+    st.session_state['top_issue_summary_all'] = pd.DataFrame()
+if 'topic_summary' not in st.session_state:
+    st.session_state['topic_summary'] = pd.DataFrame()
+
 # --- Page Config ---
 st.set_page_config(layout="wide")
 st.title("AI-Powered App Review Intelligence Dashboard")
 st.markdown("#### 🎯 Company Insights: Ranked Issues & Business Impact")
 
-# --- OpenAI 설정 ---
+# --- OpenAI API Key from environment variable ---
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     st.error("OpenAI API key not found. Please set the OPENAI_API_KEY environment variable.")
@@ -26,30 +32,24 @@ We estimate **churn rate** and **revenue impact score** using the proportion of 
 These metrics are designed to help **Product teams prioritize issues** that matter most.
 """)
 st.markdown("---")
- 
-import streamlit as st
-import pandas as pd
 
-# Step 2: Upload file or use default
-st.subheader("Step 1. Upload App Review Dataset")
-st.markdown("""
-Upload a CSV file of app reviews from your **organization**, **product of interest**, or any app you're analyzing.
-Make sure the dataset is **auto-tagged with top issue and sub issue columns** using this [tagging pipeline](https://github.com/sandy-lee29/musicapp-review-analysis).
-            """)
-uploaded_file = st.file_uploader("Upload your review CSV file", type=["csv"])
-DEFAULT_FILE = "spotify_subissues.csv"
+# Step 1: Upload file or use default
+def load_data():
+    uploaded_file = st.file_uploader("Upload your review CSV file", type=["csv"])
+    DEFAULT_FILE = "spotify_subissues.csv"
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+        st.success("✅ File uploaded successfully.")
+    else:
+        try:
+            df = pd.read_csv(DEFAULT_FILE)
+            st.info(f" Using default file: `{DEFAULT_FILE}`")
+        except FileNotFoundError:
+            st.error(f"Default file `{DEFAULT_FILE}` not found. Please upload a CSV file to continue.")
+            st.stop()
+    return df
 
-# Load file
-if uploaded_file is not None:
-    df = pd.read_csv(uploaded_file)
-    st.success("✅ File uploaded successfully.")
-else:
-    try:
-        df = pd.read_csv(DEFAULT_FILE)
-        st.info(f" Using default file: `{DEFAULT_FILE}`")
-    except FileNotFoundError:
-        st.error(f"Default file `{DEFAULT_FILE}` not found. Please upload a CSV file to continue.")
-        st.stop()
+df = load_data()
 
 # Preview the data
 st.markdown("Preview of the Dataset")
@@ -57,11 +57,10 @@ st.dataframe(df.head(3))
 st.markdown("<br>", unsafe_allow_html=True)
 st.markdown("---")
 
-# Step 3: Topic-Level Feature Importance Analysis
+# Step 2: Topic-Level Feature Importance Analysis
 from sklearn.ensemble import RandomForestRegressor
 import matplotlib.pyplot as plt
 
-# Step 3: Create Proxy Metrics
 st.subheader("Step 2. Rank Topics by Estimated Revenue Risk")
 
 st.markdown("""
@@ -107,6 +106,8 @@ if st.button("Create Proxy Metrics"):
     top_issue_summary_all['churn_rate'] = top_issue_summary_all['neg_review_pct'] * 0.5 + np.random.normal(0, 0.02, len(top_issue_summary_all))
     top_issue_summary_all['estimated_revenue_risk_score'] = top_issue_summary_all['churn_rate'] * top_issue_summary_all['num_reviews'] + np.random.normal(0, 2, len(top_issue_summary_all))
 
+    st.session_state['topic_summary'] = topic_summary
+    st.session_state['top_issue_summary_all'] = top_issue_summary_all
     st.success("✅ Proxy metrics created successfully!")
 
     st.subheader("Topic-level Revenue Risk Scores")
@@ -114,9 +115,7 @@ if st.button("Create Proxy Metrics"):
     st.dataframe(topic_summary.sort_values(by="estimated_revenue_risk_score", ascending=False).round(2))
 
     st.markdown("#### Top Issue Categories Driving Revenue Risk")
-
-    st.markdown("""This chart highlights which **topics (issue categories)** have the **highest potential impact on revenue risk**.
-                """)
+    st.markdown("""This chart highlights which **topics (issue categories)** have the **highest potential impact on revenue risk**.""")
     fig = px.bar(
         topic_summary.sort_values(by="estimated_revenue_risk_score", ascending=False),
         x="estimated_revenue_risk_score",
@@ -151,14 +150,9 @@ As a product team, our key question is:
 """
     st.markdown(summary_text)
 
-    st.session_state['topic_summary'] = topic_summary
-    st.session_state['top_issue_summary_all'] = top_issue_summary_all
-
 st.markdown("---")
 
 # Step 3: Top Issue-Level Risk Prioritization
-# --- Updated Step 3: Top Issue-Level Risk Prioritization ---
-
 st.subheader("Step 3. Rank Top Issues within Each Topic")
 
 st.markdown("""
@@ -168,7 +162,12 @@ Based on the **topic-level results above**, select a topic below to **drill down
 all_topics = df['topic'].dropna().unique().tolist()
 selected_topic = st.selectbox("⬇️ Pick a topic to drill down", sorted(all_topics))
 
-# 필터링된 데이터 가져오기
+# Check if proxy metrics have been created
+if st.session_state['top_issue_summary_all'].empty:
+    st.warning("Please click 'Create Proxy Metrics' first!")
+    st.stop()
+
+# Get filtered data
 top_issue_summary_all = st.session_state['top_issue_summary_all']
 topic_df = top_issue_summary_all[top_issue_summary_all['topic'] == selected_topic]
 
@@ -201,8 +200,8 @@ fig.update_layout(
 fig.update_traces(texttemplate='%{text:.1f}', textposition='outside')
 st.plotly_chart(fig, use_container_width=True)
 
-# 상위 이슈 텍스트 요약
-top_issue_name = topic_df_sorted.iloc[0]['top_issue']
+# Top issue summary text
+top_issue_name = topic_df_sorted.iloc[0]['top_issue'] if not topic_df_sorted.empty else "N/A"
 
 st.markdown(f"""
 Within the topic **{selected_topic}**, this chart ranks the **specific user complaints** that contribute most to **estimated revenue risk**.
@@ -212,13 +211,12 @@ Within the topic **{selected_topic}**, this chart ranks the **specific user comp
 - Product and CX teams should prioritize this finding in **roadmap planning** and consider **targeted feature enhancements**.
 """)
 
-
 st.markdown("---")
- # --- Step 4: AI-Generated Insight Report ---
+
+# Step 4: AI-Generated Insight Report
 import base64
 import io
 from fpdf import FPDF
-import openai
 
 st.subheader("Step 4. AI-Generated Insight Report")
 
@@ -226,19 +224,17 @@ st.markdown("""
 Using GPT-based analysis, we summarize business impact and product recommendations for the **top 3 issue categories** and their **top-ranked issues**.
 """)
 
-# 기본 정보
+# Basic info
 company = "Spotify"
 industry = "music streaming"
 
-# 데이터 불러오기
 topic_summary = st.session_state['topic_summary']
 top_issue_summary_all = st.session_state['top_issue_summary_all']
 df_total_reviews = len(df)
 
-# 상위 3개 topic 추출 (other 제외)
+# Get top 3 topics (excluding 'other')
 top3_topics = topic_summary[~topic_summary['topic'].str.lower().str.contains("other")].sort_values(by="estimated_revenue_risk_score", ascending=False).head(3)['topic'].tolist()
 
-# GPT 프롬프트 함수
 def generate_insight_openai(client, company, industry, topic, top_issue, avg_rating, num_reviews, topic_pct):
     prompt = f"""
 You are a product analyst at a {industry} company called {company}.
@@ -267,18 +263,16 @@ Keep your response under 4 sentences. Be insightful but concise.
         )
         return response.choices[0].message.content.strip()
     except Exception as e:
-        return f"\u26a0\ufe0f Error generating insight:\n\n{str(e)}"
+        return f"⚠️ Error generating insight:\n\n{str(e)}"
 
-# 결과 저장
 insight_blocks = []
 
-# topic별로 revenue risk score 기준 top issue 선정 + GPT 분석
+# For each top topic, select the top issue by revenue risk score and generate GPT analysis
 for topic in top3_topics:
     topic_issues = top_issue_summary_all[top_issue_summary_all['topic'] == topic]
     if topic_issues.empty:
         continue
 
-    # estimated revenue risk score 기준으로 가장 높은 top issue 선택
     topic_issues_sorted = topic_issues.sort_values(by='estimated_revenue_risk_score', ascending=False)
     top_issue_row = topic_issues_sorted.iloc[0]
     top_issue_name = top_issue_row['top_issue']
@@ -286,7 +280,6 @@ for topic in top3_topics:
     num_reviews = topic_issues['num_reviews'].sum()
     topic_pct = (num_reviews / df_total_reviews) * 100
 
-    # GPT 생성
     insight_text = generate_insight_openai(
         client, company, industry, topic, top_issue_name, avg_rating, num_reviews, topic_pct
     )
@@ -296,10 +289,10 @@ for topic in top3_topics:
 
     st.markdown(block)
 st.markdown("---")
-# --- Report Download Section ---
+
+# Report Download Section
 st.markdown("### Download Your Reports")
 
-# PDF 저장 함수
 def create_pdf_report(insight_blocks, filename="insight_report.pdf"):
     def remove_unicode(text):
         return text.encode('ascii', 'ignore').decode('ascii')
@@ -314,22 +307,18 @@ def create_pdf_report(insight_blocks, filename="insight_report.pdf"):
             pdf.multi_cell(0, 10, line)
         pdf.ln(4)
 
-    # ✨ 핵심 수정: output을 문자열로 받고 바이너리로 인코딩
-    pdf_output = pdf.output(dest='S').encode('latin-1')  # ← 핵심 줄!
+    pdf_output = pdf.output(dest='S').encode('latin-1')
     b64 = base64.b64encode(pdf_output).decode()
 
     href = f'<a href="data:application/pdf;base64,{b64}" download="{filename}">📄 Download PDF Report</a>'
     return href
 
-
-# PDF 다운로드 링크
 st.markdown(create_pdf_report(insight_blocks), unsafe_allow_html=True)
 
 st.markdown("""A concise, GPT-generated summary of the top 3 high-risk issue categories and their most impactful sub-issues—ideal for executive briefings or product review meetings.
 """)
 
-
-# CSV Work Report 저장
+# CSV Work Report Download
 csv_buffer = io.StringIO()
 combined_df = pd.concat([
     topic_summary.assign(level="Topic"),
