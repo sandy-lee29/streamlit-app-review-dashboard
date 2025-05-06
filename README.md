@@ -1,7 +1,7 @@
 ## AI-Powered App Review Intelligence Dashboard
-Check out the [Streamlit Dashboard](https://app-review-dashboard.streamlit.app/)
-A comprehensive Streamlit dashboard that transforms user reviews into actionable insights for product teams. This tool helps identify critical issues, estimate business impact, and generate AI-powered recommendations for improvement.
+Explore how this [AI-powered Streamlit dashboard](https://app-review-dashboard.streamlit.app/) helps product teams analyze app store reviews, surface top user issues, and prioritize fixes based on business impact. You can also check out the demo video [here](https://www.youtube.com/watch?v=NK6nVT0ubZw&t=70s)
 
+This comprehensive Streamlit dashboard transforms user reviews into actionable insights for product teams. This tool helps identify critical issues, estimate business impact, and generate AI-powered recommendations for improvement.
 
 ### Key Features
 1. Data Analysis
